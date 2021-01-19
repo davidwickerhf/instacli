@@ -23,6 +23,8 @@ default=lambda: Settings().output_path, required=False, help="The path to for th
 def settings(driverpath, drivervisible, logging, outputpath):
     """Customize your instacli settings"""
     settings:Settings = Settings()
+    if not drivervisible and not drivervisible and not logging and not outputpath:
+        click.echo(f"Settings: {vars(settings)}")
     if driverpath != settings.driver_path:
         settings.set_driver_path(driverpath)
     if drivervisible != settings.driver_visible:
