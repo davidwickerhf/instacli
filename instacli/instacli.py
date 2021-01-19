@@ -1,5 +1,7 @@
 import json
 import logging
+import time
+from instaclient.errors.common import InvalidUserError
 
 from instaclient.instagram.profile import Profile
 from instacli.models.igclient import IGClient
@@ -32,8 +34,8 @@ def settings(driverpath, drivervisible, logging, outputpath):
 
 
 @instacli.command()
-@click.option('--login', type=click.STRING, help='The instagram username to use for the scrape.', default=None)
-@click.option('--password', type=click.STRING, hide_input=True, help="The password of the IG account you are using for the scrape.", default=None)
+@click.option('--login', type=click.STRING, help='The instagram username to use for the scrape.', required=True)
+@click.option('--password', type=click.STRING, hide_input=True, help="The password of the IG account you are using for the scrape.", required=True)
 @click.option('--followers', is_flag=True, default=False, help="Use this flag to scrape the user's followers.")
 @click.option('--following', is_flag=True, default=False, help="Use this flag to scrape the user's following.")
 @click.option('--target', required=True, type=click.STRING, help="The username of the user to scrape.")
@@ -43,14 +45,19 @@ def settings(driverpath, drivervisible, logging, outputpath):
 def getinfo(login, password, followers, following, target, count, cursor, output):
     """Scrape a user's followers or following
     
-    The scraped users will be saved in a json file. The JSON output will also contain the last used cursor for the scraping pagination."""
+    The scraped users will be saved in a json file. The JSON output will also contain 
+    the last used cursor for the scraping pagination.
 
+    The output will be saved in a .json file inside the folder specified by ``--output``.
+    The naming of the .json file will be consistent with the following format:
+    ``timestamp-target-action.json``, where ``timestamp`` is the timestamp of the launch
+    of the command, ``target`` is the user you are getting info on and action is defined by
+    the flags ``--followers`` or ``--following``
+    """
+
+    timestamp = int(time.time())
     if not followers and not following:
         click.echo("To execute this command you must insert the flags --following or --followers.")
-        return
-
-    if login and not password:
-        click.echo(f"If you are using the --login option, you must provide a password as well with the --password option")
         return
 
     settings = Settings()
@@ -92,29 +99,133 @@ def getinfo(login, password, followers, following, target, count, cursor, output
             client.disconnect()
             click.secho(f"\nError: {error.message}", fg='red')
             return
+    client.disconnect()
 
     # Save Info
-    with open(f'{output}/{target}-{extension}.json', 'r+') as file:
-        data = json.load(file)
-        old = list()
-        if data.get('data') or data.get('cursor'):
-            if isinstance(data.get('data'), list):
-                for item in data.get('data'):
-                    old.append(Profile.de_json(item, client))
-        for user in old:
-            if user not in users:
-                users.append(user)
-
     serialized = list()
     for user in users:
         serialized.append(user.to_dict())
 
-    with open(f'{output}/{target}-{extension}.json', 'w') as file:
+    with open(f'{output}/{timestamp}-{target}-{extension}.json', 'w') as file:
         json.dump({'cursor': newcursor, 'data': serialized}, file)
 
-    click.secho(f"\n{len(users)} scraped users saved to {output}/{target}:{extension}.json", fg='green')
+    click.secho(f"\n{len(users)} scraped users saved to {output}/{timestamp}-{target}-{extension}json", fg='green')
     return serialized
 
+
+@instacli.command()
+@click.option('--login', type=click.STRING, help='The instagram username to use for the scrape.', required=True)
+@click.option('--password', type=click.STRING, hide_input=True, help="The password of the IG account you are using for the scrape.", required=True)
+@click.option('--target', required=True, type=click.STRING, help="The username of the user to scrape.")
+@click.option('--output', type=click.Path(exists=True, dir_okay=True), help="The path to the folder where you wish the JSON output to be saved to.")
+def follow(login, password, target, output):
+    """Follow a specified user
+    
+    The response of this action will be saved in a dedicated JSON file in the 
+    specified output folder.
+
+    The output will be saved in a .json file inside the folder specified by ``--output``.
+    The naming of the .json file will be consistent with the following format:
+    ``timestamp-target-action.json``, where ``timestamp`` is the timestamp of the launch
+    of the command, ``target`` is the user you are getting info on and ``action`` will be ``follow``.
+    """
+    timestamp = int(time.time())
+    settings = Settings()
+    if not settings.driver_path:
+        click.echo("No path for the chromedriver defined. Please define it using: instacli settings -dp [...]")
+        return
+
+    if not output and not settings.output_path:
+        click.echo("No output specified in command nor in settings. Please specify it with --output")
+        return
+
+    if not output:
+        output = settings.output_path
+
+    client = IGClient()
+    client.login(login, password)
+    try:
+        profile = client.get_profile(target)
+        if not profile:
+            raise InvalidUserError(target)
+    except InvalidUserError:
+        click.echo(f"The user {target} is invalid.")
+        return
+
+    try:
+        profile.follow()
+        success = True
+    except:
+        success = False
+
+    profile.refresh()
+    client.disconnect()
+
+    with open(f'{output}/{timestamp}-{target}-follow.json', 'w') as file:
+        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': profile.to_dict()})
+
+    if success:
+        click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-follow.json", fg='green')
+    else:
+        click.secho(f"An exception was raised when following the user {target}. Response can be found in {output}/{timestamp}-{target}-follow.json", fg='red')
+
+
+
+@instacli.command()
+@click.option('--login', type=click.STRING, help='The instagram username to use for the scrape.', required=True)
+@click.option('--password', type=click.STRING, hide_input=True, help="The password of the IG account you are using for the scrape.", required=True)
+@click.option('--target', required=True, type=click.STRING, help="The username of the user to scrape.")
+@click.option('--output', type=click.Path(exists=True, dir_okay=True), help="The path to the folder where you wish the JSON output to be saved to.")
+def unfollow(login, password, target, output):
+    """Unfollow a specified user
+    
+    The response of this action will be saved in a dedicated JSON file in the 
+    specified output folder.
+
+    The output will be saved in a .json file inside the folder specified by ``--output``.
+    The naming of the .json file will be consistent with the following format:
+    ``timestamp-target-action.json``, where ``timestamp`` is the timestamp of the launch
+    of the command, ``target`` is the user you are getting info on and ``action`` will be ``unfollow``.
+    """
+    timestamp = int(time.time())
+    settings = Settings()
+    if not settings.driver_path:
+        click.echo("No path for the chromedriver defined. Please define it using: instacli settings -dp [...]")
+        return
+
+    if not output and not settings.output_path:
+        click.echo("No output specified in command nor in settings. Please specify it with --output")
+        return
+
+    if not output:
+        output = settings.output_path
+
+    client = IGClient()
+    client.login(login, password)
+    try:
+        profile = client.get_profile(target)
+        if not profile:
+            raise InvalidUserError(target)
+    except InvalidUserError:
+        click.echo(f"The user {target} is invalid.")
+        return
+
+    try:
+        profile.unfollow()
+        success = True
+    except:
+        success = False
+
+    profile.refresh()
+    client.disconnect()
+
+    with open(f'{output}/{timestamp}-{target}-unfollow.json', 'w') as file:
+        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': profile.to_dict()})
+
+    if success:
+        click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='green')
+    else:
+        click.secho(f"An exception was raised when following the user {target}. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='red')
 
 if __name__ == '__name__':
     instacli(prog_name='instacli')
