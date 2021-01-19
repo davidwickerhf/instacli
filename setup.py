@@ -10,7 +10,7 @@ README = (HERE / "README.md").read_text()
 setup(
     name='instacli',
     version='0.1',
-    license='Apache License',
+    license='Apache Software License',
     packages=find_packages(exclude=['tests']),
     include_package_data=True,
     install_requires=[
@@ -28,7 +28,7 @@ setup(
     'Development Status :: 5 - Production/Stable',      # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
     'Intended Audience :: Developers',      # Define that your audience are developers
     'Topic :: Software Development :: Build Tools',
-    'License :: OSI Approved :: Apache License',   # Again, pick a license      #Specify which pyhton versions that you want to support
+    'License :: OSI Approved :: Apache Software License',   # Again, pick a license      #Specify which pyhton versions that you want to support
     'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9'
