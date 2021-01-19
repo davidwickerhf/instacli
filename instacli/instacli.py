@@ -148,21 +148,22 @@ def follow(login, password, target, output):
         profile = client.get_profile(target)
         if not profile:
             raise InvalidUserError(target)
-    except InvalidUserError:
-        click.echo(f"The user {target} is invalid.")
-        return
-
-    try:
         profile.follow()
+        user = profile.to_dict()
         success = True
-    except:
+        message = None
+    except Exception as error:
         success = False
-
-    profile.refresh()
+        user = target
+        try:
+            message = error.message
+        except:
+            message = 'Uncaught error. Check terminal logs'
     client.disconnect()
 
+    
     with open(f'{output}/{timestamp}-{target}-follow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': profile.to_dict()})
+        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': user, 'error': message})
 
     if success:
         click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-follow.json", fg='green')
@@ -206,26 +207,27 @@ def unfollow(login, password, target, output):
         profile = client.get_profile(target)
         if not profile:
             raise InvalidUserError(target)
-    except InvalidUserError:
-        click.echo(f"The user {target} is invalid.")
-        return
-
-    try:
         profile.unfollow()
+        user = profile.to_dict()
         success = True
-    except:
+        message = None
+    except Exception as error:
         success = False
-
-    profile.refresh()
+        user = target
+        try:
+            message = error.message
+        except:
+            message = 'Uncaught error. Check terminal logs'
     client.disconnect()
 
+    
     with open(f'{output}/{timestamp}-{target}-unfollow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': profile.to_dict()})
+        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': user, 'error': message})
 
     if success:
-        click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='green')
+        click.secho(f"The user {target} has been unfollowed. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='green')
     else:
-        click.secho(f"An exception was raised when following the user {target}. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='red')
+        click.secho(f"An exception was raised when unfollowing the user {target}. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='red')
 
 if __name__ == '__name__':
     instacli(prog_name='instacli')
