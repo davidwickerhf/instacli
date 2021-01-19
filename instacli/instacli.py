@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from instaclient.errors.common import InvalidUserError
+from instaclient.errors.common import FollowRequestSentError, InvalidUserError
 
 from instaclient.instagram.profile import Profile
 from instacli.models.igclient import IGClient
@@ -157,7 +157,10 @@ def follow(login, password, target, output):
         profile = client.get_profile(target)
         if not profile:
             raise InvalidUserError(target)
-        profile.follow()
+        try:
+            profile.follow()
+        except FollowRequestSentError:
+            pass
         user = profile.to_dict()
         success = True
         message = None
@@ -172,7 +175,7 @@ def follow(login, password, target, output):
 
     
     with open(f'{output}/{timestamp}-{target}-follow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': user, 'error': message}, file)
+        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': user, 'message': message}, file)
 
     if success:
         click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-follow.json", fg='green')
@@ -231,7 +234,7 @@ def unfollow(login, password, target, output):
 
     
     with open(f'{output}/{timestamp}-{target}-unfollow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': user, 'error': message}, file)
+        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': user, 'message': message}, file)
 
     if success:
         click.secho(f"The user {target} has been unfollowed. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='green')
