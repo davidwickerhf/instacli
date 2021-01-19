@@ -23,16 +23,23 @@ default=lambda: Settings().output_path, required=False, help="The path to for th
 def settings(driverpath, drivervisible, logging, outputpath):
     """Customize your instacli settings"""
     settings:Settings = Settings()
-    if not drivervisible and not drivervisible and not logging and not outputpath:
-        click.echo(f"Settings: {vars(settings)}")
+        
+    print_settings = True
     if driverpath != settings.driver_path:
         settings.set_driver_path(driverpath)
+        print_settings = False
     if drivervisible != settings.driver_visible:
         settings.set_driver_visible(drivervisible)
+        print_settings = False
     if logging != settings.logging:
         settings.set_logging(logging)
+        print_settings = False
     if outputpath != settings.output_path:
         settings.set_output_path(outputpath)
+        print_settings = True
+    
+    if print_settings:
+        click.echo(f"Settings: {vars(settings)}")
 
 
 @instacli.command()
@@ -165,7 +172,7 @@ def follow(login, password, target, output):
 
     
     with open(f'{output}/{timestamp}-{target}-follow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': user, 'error': message})
+        json.dump({'timestamp': timestamp, 'action': 'follow', 'success': success, 'target': user, 'error': message}, file)
 
     if success:
         click.secho(f"The user {target} has been followed. Response can be found in {output}/{timestamp}-{target}-follow.json", fg='green')
@@ -224,7 +231,7 @@ def unfollow(login, password, target, output):
 
     
     with open(f'{output}/{timestamp}-{target}-unfollow.json', 'w') as file:
-        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': user, 'error': message})
+        json.dump({'timestamp': timestamp, 'action': 'unfollow', 'success': success, 'target': user, 'error': message}, file)
 
     if success:
         click.secho(f"The user {target} has been unfollowed. Response can be found in {output}/{timestamp}-{target}-unfollow.json", fg='green')
