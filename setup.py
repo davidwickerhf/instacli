@@ -9,7 +9,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name='instacli',
-    version='0.2.6',
+    version='0.2.7',
     license='Apache Software License',
     packages=find_packages(exclude=['tests']),
     include_package_data=True,
@@ -18,7 +18,7 @@ setup(
         'instaclient'
     ],
     url = 'https://github.com/davidwickerhf/instacli',   # Provide either the link to your github or to your website
-    download_url = 'https://github.com/davidwickerhf/instacli/archive/v0.2.6.tar.gz',
+    download_url = 'https://github.com/davidwickerhf/instacli/archive/v0.2.7.tar.gz',
     long_description=README,
     long_description_content_type="text/markdown",
     author = 'David Wicker',                   # Type in your name
