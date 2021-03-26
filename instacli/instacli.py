@@ -1,6 +1,8 @@
-import json
+import json, csv
 import logging
 import time
+from typing import List
+from click.utils import echo
 from instaclient.errors.common import FollowRequestSentError, InvalidUserError
 
 from instaclient.instagram.profile import Profile
@@ -48,22 +50,43 @@ def settings(driverpath, drivervisible, logging, outputpath):
 @click.option('--followers', is_flag=True, default=False, help="Use this flag to scrape the user's followers.")
 @click.option('--following', is_flag=True, default=False, help="Use this flag to scrape the user's following.")
 @click.option('--target', required=True, type=click.STRING, help="The username of the user to scrape.")
+@click.option('--deepscrape', required=False, is_flag=True, default=False, help="Use this flag to deep scrape (will require more time)")
 @click.option('--count', required=True, type=click.IntRange(1, 10000), help="The amount of data to scrape.")
 @click.option('--cursor', type=click.STRING, help="GraphQL end cursor to resume the scrape with.", default=None)
 @click.option('--output', type=click.Path(exists=True, dir_okay=True), help="The path to the folder where you wish the JSON output to be saved to.")
-def getinfo(login, password, followers, following, target, count, cursor, output):
+@click.option('--csvfile', required=False, is_flag=True, help="Will output the scraped data as a CSV file. Defaults to a JSON file.")
+@click.option('--onlybusiness', required=False, is_flag=True, help="Scrape only business accounts" )
+@click.option('--onlyprivate', required=False, is_flag=True, help="Scrape only private accounts" )
+@click.option('--onlypublic', required=False, is_flag=True, help="Scrape only public accounts" )
+@click.option('--onlyverified', required=False, is_flag=True, help="Scrape only veridied accounts" )
+def getinfo(login, password, followers, following, target, deepscrape, count, cursor, output, onlybusiness, onlyprivate, onlypublic, onlyverified, csvfile):
     """Scrape a user's followers or following
     
     The scraped users will be saved in a json file. The JSON output will also contain 
     the last used cursor for the scraping pagination.
 
-    The output will be saved in a .json file inside the folder specified by ``--output``.
+    The output will be saved in a .json file inside the folder specified by --output.
     The naming of the .json file will be consistent with the following format:
-    ``timestamp-target-action.json``, where ``timestamp`` is the timestamp of the launch
-    of the command, ``target`` is the user you are getting info on and action is defined by
-    the flags ``--followers`` or ``--following``
+    "timestamp-target-action.json", where "timestamp" is the timestamp of the launch
+    of the command, "target" is the user you are getting info on and action is defined by
+    the flags "--followers" or "--following"
     """
 
+    # If verified, also public
+    # If business, also public
+
+    # NO onlybusiness + onlyprivate
+    # NO onlypublic + onlyprivate
+    # NO onlyverified + onlyprivate
+
+    # SI onlypublic + onlybusiness
+    # SI onlypublic + onlyverified
+
+    if onlyprivate:
+        if onlybusiness or onlypublic or onlyverified:
+            click.secho('You can\' select --onlyprivate along with --onlypublic, --onlybusiness or --onlyverified', fg='red')
+            return
+    
     timestamp = int(time.time())
     if not followers and not following:
         click.echo("To execute this command you must insert the flags --following or --followers.")
@@ -90,6 +113,9 @@ def getinfo(login, password, followers, following, target, count, cursor, output
     client = IGClient()
     client.login(login, password)
     client.set_logger_level(level=logging.WARNING)
+    users:List[Profile] = list()
+
+    # SOFT SCRAPE
     if followers:
         # Scrape Followers
         extension = 'followers'
@@ -108,17 +134,115 @@ def getinfo(login, password, followers, following, target, count, cursor, output
             client.disconnect()
             click.secho(f"\nError: {error.message}", fg='red')
             return
+    
+
+    # APPLY FILTERS
+    filtered = list()
+    if onlyprivate:
+        flag = 'onlyprivate'
+        for user in users:
+            if user.is_private:
+                filtered.append(user)
+    elif onlypublic:
+        flag = 'onlypublic'
+        for user in users:
+            if not user.is_private:
+                filtered.append(user)
+    elif onlyverified:
+        flag = 'onlyverified'
+        for user in users:
+            if user.is_verified:
+                filtered.append(user)
+    else:
+        flag = 'all'
+        filtered = users
+    users = filtered
+
+
+    # DEEP SCRAPE
+    if deepscrape or onlybusiness:
+        try:
+            todo = list()
+            if onlybusiness:
+                for user in users:
+                    if not user.is_private:
+                        todo.append(user)
+            else:
+                todo = users
+
+            deepscraped = list()
+            failed = list()
+            click.secho(f"\nStarting to deep scrape {len(todo)} users")
+            bar = progressbar(length=len(todo))
+            progress = Progress(bar)
+
+            for index, user in enumerate(todo):
+                try:
+                    profile = user.refresh()
+                    if not profile:
+                        raise InvalidUserError(user.username)
+                    deepscraped.append(profile)
+                    progress.update_progress(index+1)
+                except:
+                    failed.append(user.username)
+                    deepscraped.append(user)
+
+            users = deepscraped
+            message = f"\nFinished deep scraping."
+            if (len(failed) > 0):
+                message += f" {len(failed)} failed - fell back to thin scrape data"
+            click.secho(message, fg='green')
+        except Exception as error:
+            print()
+            print(error)
+            click.secho("There was an error", fg='red')
+
+    # FILTER BUSINESS ACCOUNTS
+    if onlybusiness:
+        flag = 'onlybusiness'
+        business = list()
+        for user in users:
+            if user.is_business_account:
+                business.append(user)
+        users = business
     client.disconnect()
+
+    if len(users) == 0:
+        click.secho("No users matched the selected criteria.", fg='red')
+        return
+
 
     # Save Info
     serialized = list()
     for user in users:
         serialized.append(user.to_dict())
 
-    with open(f'{output}/{timestamp}-{target}-{extension}.json', 'w') as file:
-        json.dump({'cursor': newcursor, 'data': serialized}, file)
+    filetype = 'csv' if csvfile else 'json'
+    filename = f'{output}/{timestamp}-{target}-{extension}-{flag}.{filetype}'
+    
+    if csvfile:
+        columns = list(vars(users[0]).keys())
+        columns.remove('client')
+        columns.append('cursor')
 
-    click.secho(f"\n{len(users)} scraped users saved to {output}/{timestamp}-{target}-{extension}json", fg='green')
+        rows = list()
+        for user in users:
+            data = list()
+            for var in columns:
+                data.append(user.to_dict().get(var))
+                if var == 'cursor':
+                    data.append(newcursor)
+            rows.append(data)
+
+        with open(filename, 'w+', newline='', encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(columns)
+            writer.writerows(rows)
+    else:
+        with open(filename, 'w') as file:
+            json.dump({'cursor': newcursor, 'data': serialized}, file)
+
+    click.secho(f"\n{len(users)} scraped users saved to {output}\{timestamp}-{target}-{extension}-{flag}.{filetype}", fg='green')
     return serialized
 
 
