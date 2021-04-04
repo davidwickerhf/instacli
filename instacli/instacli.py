@@ -1,9 +1,11 @@
+import io, re, os
 import json, csv
 import logging
 import time
 from typing import List
-from click.utils import echo
-from instaclient.errors.common import FollowRequestSentError, InvalidUserError
+from instaclient.errors.common import FollowRequestSentError, InstaClientError, InvalidUserError
+from instaclient.instagram.hashtag import Hashtag
+from instaclient.instagram.post import Post
 
 from instaclient.instagram.profile import Profile
 from instacli.models.igclient import IGClient
@@ -183,6 +185,8 @@ def getinfo(login, password, followers, following, target, deepscrape, count, cu
                         raise InvalidUserError(user.username)
                     deepscraped.append(profile)
                     progress.update_progress(index+1)
+                except InstaClientError: # TODO 
+                    pass
                 except:
                     failed.append(user.username)
                     deepscraped.append(user)
@@ -234,8 +238,8 @@ def getinfo(login, password, followers, following, target, deepscrape, count, cu
                     data.append(newcursor)
             rows.append(data)
 
-        with open(filename, 'w+', newline='', encoding="utf-8") as file:
-            writer = csv.writer(file)
+        with open(filename, 'w+', encoding="utf-16", newline='') as file:
+            writer = csv.writer(file, delimiter='\t')
             writer.writerow(columns)
             writer.writerows(rows)
     else:
@@ -244,6 +248,159 @@ def getinfo(login, password, followers, following, target, deepscrape, count, cu
 
     click.secho(f"\n{len(users)} scraped users saved to {output}\{timestamp}-{target}-{extension}-{flag}.{filetype}", fg='green')
     return serialized
+
+
+
+@instacli.command()
+@click.option('--login', type=click.STRING, help='The instagram username to use for the scrape.', required=True)
+@click.option('--password', type=click.STRING, hide_input=True, help="The password of the IG account you are using for the scrape.", required=True)
+@click.option('--target', required=True, type=click.STRING, help="The username of the user to scrape.")
+@click.option('--count', required=True, type=click.IntRange(1, 10000), help="The amount of data to scrape.")
+@click.option('--analyze', required=False, is_flag=True, default=False, help="Use this flag to analyze hashtag (will require more time)")
+@click.option('--deepscrape', required=False, is_flag=True, default=False, help="Use this flag to deep scrape Hashtags(will require more time)")
+@click.option('--output', type=click.Path(exists=True, dir_okay=True), help="The path to the folder where you wish the JSON output to be saved to.")
+def hashtag(login, password, target, count, analyze, output, deepscrape):
+    """Scrape the posts that contain a certain Hashtag
+    """
+    timestamp = int(time.time())
+
+    settings = Settings()
+    if not settings.driver_path:
+        click.echo("No path for the chromedriver defined. Please define it using: instacli settings -dp [...]")
+        return
+
+    if not output and not settings.output_path:
+        click.echo("No output specified in command nor in settings. Please specify it with --output")
+        return
+
+    if not output:
+        output = settings.output_path
+
+    if analyze:
+        try:
+            os.mkdir(output + f'\{timestamp}-{target}')
+        except:
+            pass
+        if os.path.isdir(output):
+            output += f'\{timestamp}-{target}'
+            
+        
+
+    def scrape_callback(scraped:list, progress:Progress):
+        progress.update_progress(len(scraped))
+
+    bar = progressbar(length=count)
+    progress = Progress(bar)
+
+    client = IGClient()
+    client.login(login, password)
+    client.set_logger_level(level=logging.ERROR)
+    posts:List[Profile] = list()
+
+    try:
+        posts:List[Post] = client.get_hashtag_posts(target, count, deep_scrape=True, callback=scrape_callback, callback_frequency=10, progress=progress)
+    except Exception as error:
+        client.disconnect()
+        click.secho(f"\nError: {error.message}", fg='red')
+        return
+
+    if len(posts) == 0:
+        click.secho("No users matched the selected criteria.", fg='red')
+        return
+    else:
+        click.echo("\nScraped Posts... Serializing...")
+
+    # Save Info
+    serialized = list()
+    for post in posts:
+        serialized.append(post.to_dict())
+
+    filename = f'{output}\{timestamp}-{target}-{count}-posts.csv'
+    
+    columns = list(vars(posts[0]).keys())
+    columns.insert(0, 'url')
+    columns.insert(1, 'hashtags')
+    columns.remove('client')
+
+    rows = list()
+    allhashtags = dict()
+    for post in posts:
+        data = list()
+
+        # Find hashtags
+        matches = re.findall(r"#\w+", post.caption)
+        for hashtag in matches:
+            hashtag = hashtag.replace('#','')
+            if not allhashtags.get(hashtag):
+                allhashtags[hashtag] = 0
+            allhashtags[hashtag] = allhashtags[hashtag] + 1
+
+        for var in columns:
+            if var == 'location' and post.location:
+                data.append(post.location.slug)
+            elif var == 'hashtags':
+                data.append(str(matches).replace("'", '').replace("[", '').replace("]", ''))
+            elif var == 'url':
+                data.append(f'https://www.instagram.com/p/{post.shortcode}/')
+            else:
+                data.append(post.to_dict().get(var))
+        rows.append(data)
+
+    with open(filename, 'w+', encoding="utf-16", newline='') as file:
+        writer = csv.writer(file, delimiter='\t')
+        writer.writerow(columns)
+        writer.writerows(rows)
+
+    click.secho(f"\n{len(posts)} scraped posts saved to {filename}", fg='green')
+
+
+    # HASHTAG ANALYTICS
+    tags = list()
+    if analyze:
+        click.echo(f"Analyzing {len(allhashtags.keys())} hashtags...")
+
+        # Save to CSV
+        filename = f'{output}\{timestamp}-{target}-analysis.csv'
+        columns.insert(0, 'hashtag')
+        columns.insert(1, 'found')            
+
+        if deepscrape:
+            columns.extend(list(vars(tags[0]).keys()))
+            columns.remove('client')
+            bar = progressbar(length=len(allhashtags.keys()))
+            progress = Progress(bar)
+
+            for index, hashtag in enumerate(list(allhashtags.keys())):
+                try:
+                    tag:Hashtag = client.get_hashtag(hashtag)
+                    tags.append(tag)
+                    progress.update_progress(index)
+                except Exception as error:
+                    pass
+    
+        rows = list()
+        for tag in allhashtags:
+            data = list()
+
+            for var in columns:
+                if var == 'hashtag':
+                    data.append(tag)
+                elif var == 'found':
+                    data.append(allhashtags.get(tag))
+                else:
+                    for x in tags:
+                        if x.name == tag:
+                            data.append(x.to_dict().get(var))
+            rows.append(data)
+
+        with open(filename, 'w+', encoding="utf-16", newline='') as file:
+            writer = csv.writer(file, delimiter='\t')
+            writer.writerow(columns)
+            writer.writerows(rows)
+
+        click.secho(f"Hashtag analysis saved to {filename}", fg='green')
+
+
 
 
 @instacli.command()

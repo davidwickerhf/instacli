@@ -9,7 +9,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name='instacli',
-    version='0.2.8',
+    version='0.2.9',
     license='Apache Software License',
     packages=find_packages(exclude=['tests']),
     include_package_data=True,
