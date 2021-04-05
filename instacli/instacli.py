@@ -289,7 +289,7 @@ def hashtag(login, password, target, count, analyze, output, deepscrape):
     def scrape_callback(scraped:list, progress:Progress):
         progress.update_progress(len(scraped))
 
-    bar = progressbar(length=count)
+    bar = progressbar(length=count*2)
     progress = Progress(bar)
 
     client = IGClient()
@@ -298,7 +298,13 @@ def hashtag(login, password, target, count, analyze, output, deepscrape):
     posts:List[Profile] = list()
 
     try:
-        posts:List[Post] = client.get_hashtag_posts(target, count, deep_scrape=True, callback=scrape_callback, callback_frequency=10, progress=progress)
+        postscodes:List[Post] = client.get_hashtag_posts(target, count, callback=scrape_callback, callback_frequency=10, progress=progress)
+        for shortcode in postscodes:
+            try:
+                posts.append(client.get_post(shortcode))
+                scrape_callback(len(posts)+len(postscodes), progress=progress)
+            except:
+                pass
     except Exception as error:
         client.disconnect()
         click.secho(f"\nError: {error.message}", fg='red')
@@ -328,12 +334,14 @@ def hashtag(login, password, target, count, analyze, output, deepscrape):
         data = list()
 
         # Find hashtags
-        matches = re.findall(r"#\w+", post.caption)
-        for hashtag in matches:
-            hashtag = hashtag.replace('#','')
-            if not allhashtags.get(hashtag):
-                allhashtags[hashtag] = 0
-            allhashtags[hashtag] = allhashtags[hashtag] + 1
+        matches = list()
+        if post.caption:
+            matches = re.findall(r"#\w+", post.caption)
+            for hashtag in matches:
+                hashtag = hashtag.replace('#','')
+                if not allhashtags.get(hashtag):
+                    allhashtags[hashtag] = 0
+                allhashtags[hashtag] = allhashtags[hashtag] + 1
 
         for var in columns:
             if var == 'location' and post.location:
@@ -361,12 +369,11 @@ def hashtag(login, password, target, count, analyze, output, deepscrape):
 
         # Save to CSV
         filename = f'{output}\{timestamp}-{target}-analysis.csv'
+        columns = list()
         columns.insert(0, 'hashtag')
         columns.insert(1, 'found')            
 
         if deepscrape:
-            columns.extend(list(vars(tags[0]).keys()))
-            columns.remove('client')
             bar = progressbar(length=len(allhashtags.keys()))
             progress = Progress(bar)
 
@@ -377,6 +384,9 @@ def hashtag(login, password, target, count, analyze, output, deepscrape):
                     progress.update_progress(index)
                 except Exception as error:
                     pass
+
+            columns.extend(list(vars(tags[0]).keys()))
+            columns.remove('client')
     
         rows = list()
         for tag in allhashtags:
